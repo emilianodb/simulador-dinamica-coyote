@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Dinámica: Coyote y Carro</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --accent-color: #00e676;
+            --danger-color: #ff5252;
+            --primary-color: #2979ff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .controls, .display-panel {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        canvas {
+            background: #2a2a2a;
+            border-radius: 8px;
+            width: 100%;
+            height: 300px;
+        }
+
+        .control-group { margin-bottom: 15px; }
+        label { display: block; font-size: 0.9rem; margin-bottom: 5px; color: #bbb; }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .stat-card {
+            background: #252525;
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-value { font-size: 1.2rem; font-weight: bold; color: var(--primary-color); }
+        
+        .status-indicator {
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+            margin-top: 10px;
+            text-transform: uppercase;
+        }
+
+        .safe { background: rgba(0, 230, 118, 0.2); color: var(--accent-color); border: 1px solid var(--accent-color); }
+        .danger { background: rgba(255, 82, 82, 0.2); color: var(--danger-color); border: 1px solid var(--danger-color); }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+
+        .btn-reset { background: #555; color: white; }
+        .btn-pause { background: var(--primary-color); color: white; }
+        .btn-limit { background: #f57c00; color: white; }
+        button:hover { opacity: 0.8; }
+
+    </style>
+</head>
+<body>
+
+    <h1>Dinámica de Compresión Vertical</h1>
+
+    <div class="dashboard">
+        <div class="controls">
+            <h3>Parámetros</h3>
+            <div class="control-group">
+                <label>Fuerza Motor: <span id="val-fm">38000</span> N</label>
+                <input type="range" id="fm" min="0" max="100000" value="38000">
+            </div>
+            <div class="control-group">
+                <label>Masa Coyote: <span id="val-mc">25</span> kg</label>
+                <input type="range" id="mc" min="1" max="100" value="25">
+            </div>
+            <div class="control-group">
+                <label>Masa Carro: <span id="val-mca">1500</span> kg</label>
+                <input type="range" id="mca" min="500" max="5000" value="1500">
+            </div>
+            <div class="control-group">
+                <label>Fricción (μ): <span id="val-mu">0.40</span></label>
+                <input type="range" id="mu" min="0.01" max="1.0" step="0.01" value="0.40">
+            </div>
+            <div class="control-group">
+                <label>Gravedad: <span id="val-g">9.78</span> m/s²</label>
+                <input type="range" id="g" min="1.6" max="20" step="0.01" value="9.78">
+            </div>
+            <div class="control-group">
+                <label>Velocidad Simulación: <span id="val-sim">1</span>x</label>
+                <input type="range" id="sim" min="0.1" max="3" step="0.1" value="1">
+            </div>
+
+            <div class="button-group">
+                <button class="btn-pause" id="btn-pause">Pausar</button>
+                <button class="btn-reset" id="btn-reset">Reset</button>
+            </div>
+            <button class="btn-limit" id="btn-limit" style="width: 100%; margin-top: 10px;">Poner al Límite (Acl. Mínima)</button>
+        </div>
+
+        <div class="display-panel">
+            <canvas id="canvas"></canvas>
+            
+            <div id="status" class="status-indicator safe">ESTADO: ADHERIDO</div>
+
+            <div class="stats">
+                <div class="stat-card"><div>Aceleración</div><div class="stat-value" id="res-acc">0</div><small>m/s²</small></div>
+                <div class="stat-card"><div>Fuerza Normal</div><div class="stat-value" id="res-n">0</div><small>N</small></div>
+                <div class="stat-card"><div>Fricción Máx</div><div class="stat-value" id="res-fmax">0</div><small>N</small></div>
+                <div class="stat-card"><div>Peso Coyote</div><div class="stat-value" id="res-w">0</div><small>N</small></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Elementos de la interfaz
+        const inputs = ['fm', 'mc', 'mca', 'mu', 'g', 'sim'];
+        const elements = {};
+        inputs.forEach(id => elements[id] = document.getElementById(id));
+
+        // Estado del sistema
+        let carPos = 50;
+        let coyoteY = 180;
+        let velocity = 0;
+        let isPaused = false;
+        let fallingSpeed = 0;
+
+        function updateValues() {
+            inputs.forEach(id => document.getElementById('val-' + id).innerText = elements[id].value);
+        }
+
+        function drawCoyote(x, y) {
+            ctx.fillStyle = "#A1887F";
+            // Cuerpo
+            ctx.fillRect(x, y, 30, 50);
+            // Cabeza
+            ctx.fillRect(x + 5, y - 20, 20, 20);
+            // Orejas
+            ctx.beginPath();
+            ctx.moveTo(x + 5, y - 20); ctx.lineTo(x, y - 35); ctx.lineTo(x + 10, y - 20);
+            ctx.moveTo(x + 25, y - 20); ctx.lineTo(x + 30, y - 35); ctx.lineTo(x + 20, y - 20);
+            ctx.fill();
+            // Ojos
+            ctx.fillStyle = "white";
+            ctx.fillRect(x + 8, y - 15, 4, 4); ctx.fillRect(x + 18, y - 15, 4, 4);
+        }
+
+        function drawCar(x) {
+            ctx.fillStyle = "#555";
+            ctx.fillRect(x - 180, 200, 180, 60); // Chasis
+            ctx.fillStyle = "#333";
+            ctx.beginPath();
+            ctx.arc(x - 150, 260, 20, 0, Math.PI * 2);
+            ctx.arc(x - 40, 260, 20, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = varColor();
+            ctx.fillRect(x - 10, 200, 10, 60); // Pared frontal
+        }
+
+        function varColor() {
+            const acc = parseFloat(elements.fm.value) / (parseFloat(elements.mca.value) + parseFloat(elements.mc.value));
+            const normal = parseFloat(elements.mc.value) * acc;
+            const fMax = normal * parseFloat(elements.mu.value);
+            const weight = parseFloat(elements.mc.value) * parseFloat(elements.g.value);
+            return fMax >= weight ? "#00e676" : "#ff5252";
+        }
+
+        function simulate() {
+            if (isPaused) return;
+
+            // FÍSICA
+            const Fm = parseFloat(elements.fm.value);
+            const mc = parseFloat(elements.mc.value);
+            const M = parseFloat(elements.mca.value);
+            const mu = parseFloat(elements.mu.value);
+            const g = parseFloat(elements.g.value);
+            const simSpeed = parseFloat(elements.sim.value);
+
+            const acc = Fm / (M + mc);
+            const normal = mc * acc;
+            const fMax = normal * mu;
+            const weight = mc * g;
+
+            // Actualizar UI
+            document.getElementById('res-acc').innerText = acc.toFixed(2);
+            document.getElementById('res-n').innerText = normal.toFixed(2);
+            document.getElementById('res-fmax').innerText = fMax.toFixed(2);
+            document.getElementById('res-w').innerText = weight.toFixed(2);
+
+            const status = document.getElementById('status');
+            if (fMax >= weight) {
+                status.innerText = "ESTADO: ADHERIDO";
+                status.className = "status-indicator safe";
+                fallingSpeed = 0;
+            } else {
+                status.innerText = "ESTADO: DESLIZANDO";
+                status.className = "status-indicator danger";
+                fallingSpeed += (g - (fMax / mc)) * 0.016 * simSpeed;
+                coyoteY += fallingSpeed;
+            }
+
+            // Movimiento visual
+            velocity += acc * 0.016 * simSpeed;
+            carPos += velocity;
+            if (carPos > canvas.width + 200) carPos = -50;
+
+            // DIBUJO
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Suelo
+            ctx.strokeStyle = "#444";
+            ctx.beginPath(); ctx.moveTo(0, 280); ctx.lineTo(800, 280); ctx.stroke();
+
+            ctx.save();
+            ctx.translate(- (carPos % 200) + 200, 0); // Efecto de cámara/suelo
+            drawCar(carPos);
+            drawCoyote(carPos, coyoteY);
+            ctx.restore();
+
+            updateValues();
+            requestAnimationFrame(simulate);
+        }
+
+        // Botones
+        document.getElementById('btn-reset').onclick = () => {
+            carPos = 50; coyoteY = 180; velocity = 0; fallingSpeed = 0;
+        };
+
+        document.getElementById('btn-pause').onclick = (e) => {
+            isPaused = !isPaused;
+            e.target.innerText = isPaused ? "Reanudar" : "Pausar";
+            if (!isPaused) simulate();
+        };
+
+        document.getElementById('btn-limit').onclick = () => {
+            const mc = parseFloat(elements.mc.value);
+            const M = parseFloat(elements.mca.value);
+            const mu = parseFloat(elements.mu.value);
+            const g = parseFloat(elements.g.value);
+            const aMin = g / mu;
+            const fLimit = (M + mc) * aMin;
+            elements.fm.value = fLimit;
+            updateValues();
+        };
+
+        canvas.width = 800;
+        canvas.height = 300;
+        simulate();
+    </script>
+</body>
+</html>
